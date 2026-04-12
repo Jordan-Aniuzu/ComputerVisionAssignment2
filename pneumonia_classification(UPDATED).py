@@ -97,3 +97,103 @@ with tf.device('/cpu:0'):
     # RESCALING LAYER NORMALISES PIXEL VALUES FROM 0-255 TO 0-1
     # THIS IS REQUIRED BEFORE PASSING IMAGES INTO MOBILENETV2
     rescale = tf.keras.layers.Rescaling(1.0 / 255)
+
+
+
+#SEGMENT 2
+
+    # RESCALING LAYER NORMALISES PIXEL VALUES FROM 0-255 TO 0-1
+    # THIS IS REQUIRED BEFORE PASSING IMAGES INTO MOBILENETV2
+    rescale = tf.keras.layers.Rescaling(1.0 / 255)
+
+    # DATA AUGMENTATION LAYER RANDOMLY TRANSFORMS IMAGES DURING TRAINING
+    # THIS HELPS THE MODEL GENERALISE BETTER AND REDUCES OVERFITTING
+    # ONLY APPLIED DURING TRAINING NOT DURING VALIDATION OR TESTING
+    data_augmentation = tf.keras.Sequential([
+        tf.keras.layers.RandomFlip("horizontal"),
+        tf.keras.layers.RandomRotation(0.1),
+        tf.keras.layers.RandomZoom(0.1),
+        tf.keras.layers.RandomTranslation(0.1, 0.1),
+    ])
+
+    # PREPROCESS DATASETS WITH RESCALING
+    # AUGMENTATION ONLY GOES ON TRAINING DATA
+    train_ds_processed = train_ds.map(lambda x, y: (rescale(data_augmentation(x, training=True)), y))
+    val_ds_processed   = val_ds.map(lambda x, y: (rescale(x), y))
+    test_ds_processed  = test_ds.map(lambda x, y: (rescale(x), y))
+
+    # CACHE AND PREFETCH FOR FASTER TRAINING BY LOADING DATA IN BACKGROUND
+    AUTOTUNE = tf.data.AUTOTUNE
+    train_ds_processed = train_ds_processed.cache().prefetch(buffer_size=AUTOTUNE)
+    val_ds_processed   = val_ds_processed.cache().prefetch(buffer_size=AUTOTUNE)
+    test_ds_processed  = test_ds_processed.cache().prefetch(buffer_size=AUTOTUNE)
+
+    # LOAD MOBILENETV2 PRETRAINED ON IMAGENET AS THE BASE MODEL
+    # THIS IS CALLED TRANSFER LEARNING - WE REUSE FEATURES LEARNED FROM MILLIONS OF IMAGES
+    # INCLUDE TOP IS FALSE SO WE REMOVE THE ORIGINAL CLASSIFICATION HEAD AND ADD OUR OWN
+    base_model = MobileNetV2(
+        input_shape=(img_height, img_width, img_channels),
+        include_top=False,
+        weights='imagenet'
+    )
+
+    # FREEZE ALL LAYERS IN THE BASE MODEL SO THEY DO NOT CHANGE DURING INITIAL TRAINING
+    # WE ONLY WANT TO TRAIN OUR NEW CLASSIFICATION HEAD FIRST
+    base_model.trainable = False
+
+    # BUILD THE FULL MODEL BY ADDING OUR CUSTOM HEAD ON TOP OF MOBILENETV2
+    inputs  = tf.keras.Input(shape=(img_height, img_width, img_channels))
+    x       = base_model(inputs, training=False)
+
+    # GLOBALAVERAGEPOOLING REDUCES SPATIAL DIMENSIONS TO A SINGLE VECTOR PER IMAGE
+    x       = layers.GlobalAveragePooling2D()(x)
+
+    # DENSE LAYER LEARNS TO COMBINE THE EXTRACTED FEATURES
+    x       = layers.Dense(256, activation='relu')(x)
+
+    # BATCHNORM NORMALISES ACTIVATIONS WHICH SPEEDS UP TRAINING AND IMPROVES STABILITY
+    x       = layers.BatchNormalization()(x)
+
+    # DROPOUT RANDOMLY TURNS OFF NEURONS DURING TRAINING TO PREVENT OVERFITTING
+    x       = layers.Dropout(0.4)(x)
+
+    x       = layers.Dense(128, activation='relu')(x)
+    x       = layers.Dropout(0.3)(x)
+
+    # FINAL OUTPUT LAYER HAS ONE NODE PER CLASS WITH SOFTMAX FOR MULTI CLASS CLASSIFICATION
+    outputs = layers.Dense(num_classes, activation='softmax')(x)
+
+    model = tf.keras.Model(inputs, outputs)
+    model.summary()
+
+    # COMPILE THE MODEL WITH ADAM OPTIMISER AND SPARSE CATEGORICAL CROSSENTROPY
+    # SINCE WE HAVE 3 CLASSES AND INTEGER LABELS
+    model.compile(
+        loss='sparse_categorical_crossentropy',
+        optimizer=Adam(learning_rate=1e-3),
+        metrics=['accuracy']
+    )
+
+    # EARLY STOPPING STOPS TRAINING WHEN VALIDATION LOSS STOPS IMPROVING
+    # RESTORE BEST WEIGHTS RELOADS THE WEIGHTS FROM THE BEST EPOCH
+    earlystop_callback = tf.keras.callbacks.EarlyStopping(
+        monitor='val_loss',
+        patience=4,
+        restore_best_weights=True
+    )
+
+    # MODEL CHECKPOINT SAVES THE BEST MODEL TO DISK DURING TRAINING
+    save_callback = tf.keras.callbacks.ModelCheckpoint(
+        "pneumonia.keras",
+        save_freq='epoch',
+        save_best_only=True
+    )
+
+    # REDUCE LEARNING RATE WHEN VALIDATION LOSS PLATEAUS TO FINE TUNE WEIGHTS
+    lr_callback = tf.keras.callbacks.ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=2,
+        verbose=1
+    )
+
