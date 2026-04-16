@@ -197,3 +197,63 @@ with tf.device('/cpu:0'):
         verbose=1
     )
 
+
+#SEGMENT 3 STARTING FROM IF STATMENT REPORTINFG TRIANING TIME
+
+    if fit:
+        # RECORD START TIME SO WE CAN REPORT HOW LONG TRAINING TOOK
+        start_time = time.time()
+
+        print("\nPHASE 1 TRAINING THE CLASSIFICATION HEAD WITH FROZEN BASE MODEL")
+        history = model.fit(
+            train_ds_processed,
+            validation_data=val_ds_processed,
+            epochs=epochs,
+            class_weight=class_weight_dict,
+            callbacks=[earlystop_callback, save_callback, lr_callback]
+        )
+
+        # PHASE 2 FINE TUNING - UNFREEZE TOP LAYERS OF MOBILENETV2 AND TRAIN AT LOW LEARNING RATE
+        # THIS ALLOWS THE PRETRAINED FEATURES TO ADAPT SLIGHTLY TO OUR SPECIFIC DATASET
+        print("\nPHASE 2 FINE TUNING TOP LAYERS OF MOBILENETV2")
+        base_model.trainable = True
+
+        # ONLY UNFREEZE THE LAST 30 LAYERS TO AVOID DESTROYING EARLY LEARNED FEATURES
+        for layer in base_model.layers[:-30]:
+            layer.trainable = False
+
+        # RECOMPILE WITH A MUCH LOWER LEARNING RATE FOR FINE TUNING
+        # HIGH LEARNING RATE HERE WOULD DESTROY THE PRETRAINED WEIGHTS
+        model.compile(
+            loss='sparse_categorical_crossentropy',
+            optimizer=Adam(learning_rate=1e-5),
+            metrics=['accuracy']
+        )
+
+        history_fine = model.fit(
+            train_ds_processed,
+            validation_data=val_ds_processed,
+            epochs=10,
+            class_weight=class_weight_dict,
+            callbacks=[earlystop_callback, save_callback, lr_callback]
+        )
+
+        # CALCULATE AND PRINT TOTAL TRAINING TIME FOR THE REPORT
+        end_time = time.time()
+        training_minutes = (end_time - start_time) / 60
+        print(f"\nTOTAL TRAINING TIME: {training_minutes:.1f} MINUTES")
+
+    else:
+        # LOAD PREVIOUSLY SAVED MODEL IF FIT IS SET TO FALSE
+        model = tf.keras.models.load_model("pneumonia.keras")
+
+    # EVALUATE THE MODEL ON THE TEST SET
+    print("\nEVALUATING ON TEST SET")
+    score = model.evaluate(test_ds_processed, batch_size=batch_size)
+    print('Test loss:    ', score[0])
+    print('Test accuracy:', score[1])
+
+    # GET ALL PREDICTIONS AND TRUE LABELS FROM THE TEST SET FOR DETAILED METRICS
+    all_preds  = []
+    all_labels = []
+
