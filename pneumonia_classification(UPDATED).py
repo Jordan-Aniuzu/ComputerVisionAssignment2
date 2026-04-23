@@ -204,32 +204,32 @@ with tf.device('/cpu:0'):
 
     
     # BUILD THE FULL MODEL BY ADDING OUR CUSTOM HEAD ON TOP OF MOBILENETV2
-    inputs  = tf.keras.Input(shape=(img_height, img_width, img_channels))
-    x       = base_model(inputs, training=False)
+    inputs = tf.keras.Input(shape=(img_height, img_width, img_channels))
+    x = base_model(inputs, training=False)
 
 
     
     # GLOBALAVERAGEPOOLING REDUCES SPATIAL DIMENSIONS TO A SINGLE VECTOR PER IMAGE
-    x       = layers.GlobalAveragePooling2D()(x)
+    x = layers.GlobalAveragePooling2D()(x)
 
 
 
     
     # DENSE LAYER LEARNS TO COMBINE THE EXTRACTED FEATURES
-    x       = layers.Dense(256, activation='relu')(x)
+    x = layers.Dense(256, activation='relu')(x)
 
 
     
     # BATCHNORM NORMALISES ACTIVATIONS WHICH SPEEDS UP TRAINING AND IMPROVES STABILITY
-    x       = layers.BatchNormalization()(x)
+    x = layers.BatchNormalization()(x)
 
     
     # DROPOUT RANDOMLY TURNS OFF NEURONS DURING TRAINING TO PREVENT OVERFITTING
-    x       = layers.Dropout(0.4)(x)
+    x = layers.Dropout(0.4)(x)
 
     
-    x       = layers.Dense(128, activation='relu')(x)
-    x       = layers.Dropout(0.3)(x)
+    x = layers.Dense(128, activation='relu')(x)
+    x = layers.Dropout(0.3)(x)
 
     # FINAL OUTPUT LAYER HAS ONE NODE PER CLASS WITH SOFTMAX FOR MULTI CLASS CLASSIFICATION
     outputs = layers.Dense(num_classes, activation='softmax')(x)
